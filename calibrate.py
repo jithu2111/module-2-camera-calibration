@@ -12,7 +12,6 @@ CHECKERBOARD_PORTRAIT = (6, 9)
 # UPDATE: Real world square size in millimeters
 SQUARE_SIZE = 23
 
-
 # --- 2. PREPARE IDEAL 3D OBJECT POINTS ---
 # We need 3D coordinates for the corners in the real world (X, Y, Z=0)
 

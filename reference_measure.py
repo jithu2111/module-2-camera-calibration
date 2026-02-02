@@ -8,7 +8,7 @@ IMAGE_PATH = '40023.jpg'
 # You can stick to 84.14mm if you measured it specifically.
 REF_OBJECT_REAL_WIDTH = 84.14
 
-#IPhone 5 actual heigh is
+#IPhone 5 actual height is 128mm
 
 # --- LOAD IMAGE ---
 raw_img = cv2.imread(IMAGE_PATH)
