@@ -3,9 +3,10 @@ import numpy as np
 import math
 
 # --- CONFIGURATION ---
-IMAGE_PATH = 'validation_3m.jpeg'
+IMAGE_PATH = 'validation_2m.jpeg'
 KNOWN_DISTANCE = 3020  # Distance in mm (Z)
 ACTUAL_REAL_WIDTH = 84.14  # The Ground Truth width of the card (mm)
+ACTUAL_REAL_HEIGHT = 51.0  # The Ground Truth height of the card (mm)
 
 CALIB_WIDTH_ORIGINAL = 4000.0  # Resolution of your calibration images
 
@@ -24,10 +25,16 @@ ref_points = []
 image_display = None
 clean_image = None
 FOCAL_LENGTH_X = 0
+measurement_stage = "width"  # Track which measurement we're on: "width" or "height"
+width_points = []
+height_points = []
+measured_width = 0
+measured_height = 0
 
 
 def click_event(event, x, y, flags, param):
-    global ref_points, image_display
+    global ref_points, image_display, measurement_stage, width_points, height_points
+    global measured_width, measured_height
 
     if event == cv2.EVENT_LBUTTONDOWN:
         ref_points.append((x, y))
@@ -35,50 +42,104 @@ def click_event(event, x, y, flags, param):
         cv2.imshow("Measurement", image_display)
 
         if len(ref_points) == 2:
-            calculate_and_display()
-            ref_points = []
-            # Wait 3 seconds so you can read it, then reset
-            cv2.waitKey(3000)
-            image_display[:] = clean_image[:]
-            cv2.imshow("Measurement", image_display)
+            if measurement_stage == "width":
+                # Calculate width
+                width_points = ref_points.copy()
+                measured_width = calculate_measurement(width_points, "Width")
+
+                # Draw width measurement on image
+                pt1, pt2 = width_points[0], width_points[1]
+                cv2.line(image_display, pt1, pt2, (0, 255, 255), 2)
+                mid = ((pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2)
+                cv2.putText(image_display, f"Width: {measured_width:.1f}mm", (mid[0], mid[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                cv2.imshow("Measurement", image_display)
+
+                # Wait 2 seconds before moving to height
+                cv2.waitKey(2000)
+
+                # Reset to clean image for height measurement (remove width line)
+                image_display[:] = clean_image[:]
+
+                # Update instruction text for height measurement
+                instruction_text = "STEP 2: Measure HEIGHT (TOP to BOTTOM edge)"
+                text_size = cv2.getTextSize(instruction_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+                text_x = (image_display.shape[1] - text_size[0]) // 2
+                text_y = 40
+                cv2.rectangle(image_display, (text_x - 10, text_y - 30),
+                              (text_x + text_size[0] + 10, text_y + 10), (0, 0, 0), -1)
+                cv2.putText(image_display, instruction_text, (text_x, text_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+                cv2.imshow("Measurement", image_display)
+
+                # Move to height measurement
+                measurement_stage = "height"
+                ref_points = []
+                print("\n--- STEP 2: Measure HEIGHT ---")
+                print("Click the TOP edge, then the BOTTOM edge of the object.")
+
+            elif measurement_stage == "height":
+                # Calculate height
+                height_points = ref_points.copy()
+                measured_height = calculate_measurement(height_points, "Height")
+
+                # Draw height measurement on image
+                pt1, pt2 = height_points[0], height_points[1]
+                cv2.line(image_display, pt1, pt2, (255, 0, 255), 2)
+                mid = ((pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2)
+                cv2.putText(image_display, f"Height: {measured_height:.1f}mm", (mid[0] + 10, mid[1]),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+                cv2.imshow("Measurement", image_display)
+
+                # Display final results
+                display_final_results()
+
+                # Wait 3 seconds then close window and exit program
+                cv2.waitKey(3000)
+                cv2.destroyAllWindows()
+                exit()
 
 
-def calculate_and_display():
-    pt1 = ref_points[0]
-    pt2 = ref_points[1]
+def calculate_measurement(points, dimension_name):
+    """Calculate the real-world measurement from two points"""
+    pt1 = points[0]
+    pt2 = points[1]
 
-    # 1. Pixel Width
-    pixel_width = math.sqrt((pt2[0] - pt1[0]) ** 2 + (pt2[1] - pt1[1]) ** 2)
+    # Calculate pixel distance
+    pixel_distance = math.sqrt((pt2[0] - pt1[0]) ** 2 + (pt2[1] - pt1[1]) ** 2)
 
-    # 2. Real Width Formula (Perspective Projection)
-    # W_real = (Z * w_pixel) / f_x
-    measured_width = (KNOWN_DISTANCE * pixel_width) / FOCAL_LENGTH_X
+    # Real measurement formula (Perspective Projection)
+    # Measurement = (Z * pixel_distance) / f_x
+    real_measurement = (KNOWN_DISTANCE * pixel_distance) / FOCAL_LENGTH_X
 
-    # 3. --- ERROR CALCULATION CODE ---
-    # Formula: |Measured - Actual| / Actual * 100
-    error_percent = abs(measured_width - ACTUAL_REAL_WIDTH) / ACTUAL_REAL_WIDTH * 100
+    print(f"\n--- {dimension_name} Measurement ---")
+    print(f"Pixel Distance: {pixel_distance:.1f} px")
+    print(f"Measured {dimension_name}: {real_measurement:.2f} mm")
 
-    print(f"\n--- Result ---")
-    print(f"Distance from which object photo is taken: 3020mm")
-    print(f"Pixel Width:    {pixel_width:.1f} px")
-    print(f"Measured Width: {measured_width:.2f} mm")
-    print(f"Actual Width:   {ACTUAL_REAL_WIDTH:.2f} mm")
-    print(f"Error:          {error_percent:.2f} %")
+    return real_measurement
 
-    # 4. Draw line and text on image
-    cv2.line(image_display, pt1, pt2, (0, 255, 255), 2)
-    mid = ((pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2)
 
-    # Display Width
-    cv2.putText(image_display, f"{measured_width:.1f}mm", (mid[0], mid[1] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+def display_final_results():
+    """Display final results with error calculations for both width and height"""
+    # Calculate errors
+    width_error = abs(measured_width - ACTUAL_REAL_WIDTH) / ACTUAL_REAL_WIDTH * 100
+    height_error = abs(measured_height - ACTUAL_REAL_HEIGHT) / ACTUAL_REAL_HEIGHT * 100
 
-    # Display Error (in Red or Green depending on accuracy)
-    color = (0, 255, 0) if error_percent < 5.0 else (0, 0, 255)  # Green if <5%, else Red
-    cv2.putText(image_display, f"Err: {error_percent:.1f}%", (mid[0], mid[1] + 20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    print(f"\n{'='*50}")
+    print(f"{'FINAL RESULTS':^50}")
+    print(f"{'='*50}")
+    print(f"Distance from camera: {KNOWN_DISTANCE} mm\n")
 
-    cv2.imshow("Measurement", image_display)
+    print(f"WIDTH:")
+    print(f"  Measured: {measured_width:.2f} mm")
+    print(f"  Actual:   {ACTUAL_REAL_WIDTH:.2f} mm")
+    print(f"  Error:    {width_error:.2f} %\n")
+
+    print(f"HEIGHT:")
+    print(f"  Measured: {measured_height:.2f} mm")
+    print(f"  Actual:   {ACTUAL_REAL_HEIGHT:.2f} mm")
+    print(f"  Error:    {height_error:.2f} %")
+    print(f"{'='*50}")
 
 
 # --- MAIN EXECUTION ---
@@ -108,8 +169,20 @@ dst = dst[y:y + h, x:x + w]
 image_display = dst.copy()
 clean_image = dst.copy()
 
+# Add instruction text to the image window
+instruction_text = "STEP 1: Measure WIDTH first (LEFT to RIGHT edge)"
+text_size = cv2.getTextSize(instruction_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+text_x = (image_display.shape[1] - text_size[0]) // 2
+text_y = 40
+
+# Add background rectangle for better visibility
+cv2.rectangle(image_display, (text_x - 10, text_y - 30),
+              (text_x + text_size[0] + 10, text_y + 10), (0, 0, 0), -1)
+cv2.putText(image_display, instruction_text, (text_x, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
 print("\n--- READY ---")
-print("Click the LEFT edge, then the RIGHT edge of the object.")
+print("STEP 1: Measure WIDTH - Click the LEFT edge, then the RIGHT edge of the object.")
 print("Press 'q' to quit.")
 
 cv2.imshow("Measurement", image_display)
